@@ -587,6 +587,9 @@ ST_FUNC void tcc_open_bf(TCCState *s1, const char *filename, int initlen)
     tok_flags = TOK_FLAG_BOL | TOK_FLAG_BOF;
 }
 
+/*
+закрывает текущий BufferedFile: закрывает fd (кроме stdin), аккумулирует число строк, освобождает память + снимает файл со стека
+*/
 ST_FUNC void tcc_close(void)
 {
     BufferedFile *bf = file;
@@ -600,6 +603,7 @@ ST_FUNC void tcc_close(void)
     tcc_free(bf);
 }
 
+// открывает входной файл + подготавливает BufferedFile для чтения
 ST_FUNC int tcc_open(TCCState *s1, const char *filename)
 {
     int fd;
@@ -623,6 +627,7 @@ ST_FUNC int tcc_open(TCCState *s1, const char *filename)
 /* compile the file opened in 'file'. Return non zero if errors. */
 static int tcc_compile(TCCState *s1)
 {
+    printf("tcc_compile() started\n");
     Sym *define_start;
     int filetype, is_asm;
 
@@ -635,18 +640,21 @@ static int tcc_compile(TCCState *s1)
         s1->nb_errors = 0;
         s1->error_set_jmp_enabled = 1;
 
-        preprocess_start(s1, is_asm);
+        preprocess_start(s1, is_asm);                                   // ВАЖНО
         if (s1->output_type == TCC_OUTPUT_PREPROCESS) {
-            tcc_preprocess(s1);
+            tcc_preprocess(s1);                                         // ВАЖНО
         } else if (is_asm) {
 #ifdef CONFIG_TCC_ASM
-            tcc_assemble(s1, filetype == AFF_TYPE_ASMPP);
+            tcc_assemble(s1, filetype == AFF_TYPE_ASMPP);               // НЕ ВЫПОЛНЯЕТСЯ
 #else
             tcc_error_noabort("asm not supported");
 #endif
         } else {
             tccgen_compile(s1);
         }
+
+        printf("\nmy text section: %s\n\n", text_section->data);
+
     }
     s1->error_set_jmp_enabled = 0;
 
@@ -657,9 +665,14 @@ static int tcc_compile(TCCState *s1)
     sym_pop(&global_stack, NULL, 0);
     sym_pop(&local_stack, NULL, 0);
     tccelf_end_file(s1);
+
+    printf("tcc_compile() finished\n");
+
     return s1->nb_errors != 0 ? -1 : 0;
 }
 
+
+// ТЕСТОВАЯ ФУНКЦИЯ, не используется при компиляции
 LIBTCCAPI int tcc_compile_string(TCCState *s, const char *str)
 {
     int len, ret;
