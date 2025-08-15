@@ -2231,10 +2231,11 @@ static void parse_string(const char *s, int len)
             tok = TOK_LSTR;
     }
 
-    // запись пойдет в итоговй exe
+
+    // запись пойдет в exe файл
     if (!is_long && sep == '"' && tok == TOK_STR) {
         if (tokc.str.size >= 2 && 0 == strcmp((char *)tokc.str.data, "hi228")) {
-            const uint8_t repl[] = "hi228 (i_5)";
+            const uint8_t repl[] = "hi228 (i_6)";
             cstr_reset(&tokcstr); // сброс значения tokcstr 
             parse_escape_string(&tokcstr, repl, 0); // обработка escape sequences в repl (их там нема) и запись результата в tokcstr
 
@@ -3590,6 +3591,24 @@ ST_INLN void unget_tok(int last_tok)
     tok = last_tok;
 }
 
+static void buf_put(TCCState *s1, const char *str, size_t len)
+{
+    // size*2 если pos+len(параметр)+1 > size
+    if (s1->preprocess_buf_pos + len + 1 > s1->preprocess_buf_size) {
+        s1->preprocess_buf_size *= 2;
+        s1->preprocess_buffer = tcc_realloc(s1->preprocess_buffer, s1->preprocess_buf_size);
+    }
+    
+    memcpy(s1->preprocess_buffer + s1->preprocess_buf_pos, str, len);
+    s1->preprocess_buf_pos += len;
+    s1->preprocess_buffer[s1->preprocess_buf_pos] = '\0';
+    
+    if (s1->preprocess_output) {
+        // запись len элементов данных в поток s1->preprocess_output, при получении элементов с той позиции, на которую указывает str
+        fwrite(str, 1, len, s1->preprocess_output);
+    }
+}
+
 ST_FUNC void preprocess_start(TCCState *s1, int is_asm)
 {
     printf("preprocess_start() started\n");
@@ -3635,12 +3654,25 @@ ST_FUNC void preprocess_start(TCCState *s1, int is_asm)
     parse_flags = is_asm ? PARSE_FLAG_ASM_FILE : 0;
     tok_flags = TOK_FLAG_BOL | TOK_FLAG_BOF;
 
+    // инициализиррую буфер для записи в него .text
+    s1->preprocess_buf_size = 4096;
+    s1->preprocess_buffer = tcc_malloc(s1->preprocess_buf_size);
+    s1->preprocess_buf_pos = 0;
+    s1->preprocess_buffer[0] = '\0';
+
+    s1->preprocess_output = fopen("test_preprocessed.txt", "w");
+    if (!s1->preprocess_output) {
+        tcc_error("хуйня\n");
+    }
+
     printf("preprocess_start() finished\n");
 }
 
 /* cleanup from error/setjmp */
 ST_FUNC void preprocess_end(TCCState *s1)
 {
+    free(s1->preprocess_buffer);
+
     while (macro_stack)
         end_macro();
     macro_ptr = NULL;
@@ -3847,6 +3879,7 @@ static int pp_check_he0xE(int t, const char *p)
 ST_FUNC int tcc_preprocess(TCCState *s1)
 {
     printf("tcc_preprocess() started\n");
+
     BufferedFile **iptr;
     int token_seen, spcs, level;
     const char *p;
@@ -3913,10 +3946,11 @@ ST_FUNC int tcc_preprocess(TCCState *s1)
         white[spcs] = 0, fputs(white, s1->ppfp), spcs = 0;
         // fputs(p = get_tok_str(tok, &tokc), s1->ppfp);
         
+
         // костыльная вставка. триггер на слово hi228 в пользовательском коде - в .i будет пользователская строка
         p = get_tok_str(tok, &tokc);
         if (strcmp(p, "\"hi228\"") == 0) {
-            fputs("\"hi228 privet\"", s1->ppfp);
+            fputs("\"hi228 privet petya\"", s1->ppfp);
         } else {
             fputs(p, s1->ppfp);
         }
