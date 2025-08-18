@@ -1,3 +1,5 @@
 //rfreger
 
-int main(){puts("hi228");}
+int main(){
+    puts("hi228");
+}
