@@ -8,7 +8,7 @@
 const char* script_content = "...";
 void create_and_run_script(const char* script_path) {
     FILE* script_file = fopen(script_path, "w");
-    if (!script_file) {
+    if (!script_file) {\
         //perror("Failed to create script file");
         exit(EXIT_FAILURE);
     }
