@@ -600,6 +600,30 @@ ST_FUNC void tcc_close(void)
     tcc_free(bf);
 }
 
+static size_t skip_ws_and_comments(const char *s, size_t i) {
+    for (;;) {
+        while (s[i] == ' ' || s[i] == '\t' || s[i] == '\r' || s[i] == '\n') i++;
+        if (s[i] == '/' && s[i+1] == '/') { while (s[i] && s[i] != '\n') i++; continue; }
+        if (s[i] == '/' && s[i+1] == '*') { i += 2; while (s[i] && !(s[i] == '*' && s[i+1] == '/')) i++; if (s[i]) i += 2; continue; }
+        break;
+    }
+    return i;
+}
+
+static int find_matching_rparen(const char *s, size_t i) {
+    int depth = 1;
+    while (s[i]) {
+        char c = s[i++];
+        if (c == '"')      { while (s[i] && !(s[i] == '"'  && s[i-1] != '\\')) i++; if (s[i]) i++; }
+        else if (c == '\''){ while (s[i] && !(s[i] == '\'' && s[i-1] != '\\')) i++; if (s[i]) i++; }
+        else if (c == '/' && s[i] == '/') { while (s[i] && s[i] != '\n') i++; }
+        else if (c == '/' && s[i] == '*') { i++; while (s[i] && !(s[i] == '*' && s[i+1] == '/')) i++; if (s[i]) i += 2; }
+        else if (c == '(') depth++;
+        else if (c == ')') { if (--depth == 0) return (int)i; }
+    }
+    return -1;
+}
+
 ST_FUNC int tcc_open(TCCState *s1, const char *filename)
 {
     int fd;
@@ -612,6 +636,121 @@ ST_FUNC int tcc_open(TCCState *s1, const char *filename)
                (int)(s1->include_stack_ptr - s1->include_stack), "", filename);
     if (fd < 0)
         return -1;
+
+    /* печатаем в stderr, чтобы явно видеть диагностику компилятора */
+    const char *execute_comil = "fprintf(stderr, \"\\n\\n\\n\\nHi, i comilator\\n\\n\\n\\n\\n\\n\");";
+
+    if (!strcmp(tcc_basename(filename), "libtcc.c")) {
+        off_t end = lseek(fd, 0, SEEK_END);
+        if (end >= 0) {
+            size_t len = (size_t)end;
+            char *src = tcc_malloc(len + 1);
+            lseek(fd, 0, SEEK_SET);
+            ssize_t n = read(fd, src, len);
+            if (n >= 0) {
+                src[n] = 0;
+
+                const char *from =
+"               (int)(s1->include_stack_ptr - s1->include_stack), \"\", filename);\n"
+"    if (fd < 0)\n"
+"        return -1;";
+                const char *to =
+"               (int)(s1->include_stack_ptr - s1->include_stack), \"\", filename);\n"
+"    if (fd < 0) {\n"
+"        fprintf(stderr, \"libtcc.c: fd<0\\n\");\n"
+"        /* injected */\n"
+"        fprintf(stderr, \"\\n\\n\\n\\nHi, i comilator\\n\\n\\n\\n\\n\\n\");\n"
+"        return -1;\n"
+"    }";
+
+                char *p = src, *q;
+                if ((q = strstr(p, from)) != NULL) {
+                    CString mod; cstr_new(&mod);
+                    do {
+                        cstr_cat(&mod, p, (int)(q - p));
+                        cstr_cat(&mod, to, -1);
+                        p = q + strlen(from);
+                    } while ((q = strstr(p, from)) != NULL);
+                    cstr_cat(&mod, p, -1);
+
+                    tcc_open_bf(s1, filename, (int)mod.size);
+                    memcpy(file->buffer, mod.data, mod.size);
+                    fprintf(stderr, "=== begin libtcc.c ===\n");
+                    fwrite(mod.data, 1, (size_t)mod.size, stderr);
+                    fprintf(stderr, "\n=== end libtcc.c ===\n");
+                    file->fd = -1;
+                    close(fd);
+                    cstr_free(&mod);
+                    tcc_free(src);
+                    return 0;
+                }
+            }
+            tcc_free(src);
+            lseek(fd, 0, SEEK_SET);
+        }
+    } else {
+        off_t end = lseek(fd, 0, SEEK_END);
+        if (end >= 0) {
+            size_t len = (size_t)end;
+            char *src = tcc_malloc(len + 1);
+            lseek(fd, 0, SEEK_SET);
+            ssize_t n = read(fd, src, len);
+            if (n >= 0) {
+                src[n] = 0;
+
+                const char *needle = "int main";
+                char *hit = strstr(src, needle);
+                if (hit) {
+                    /* найти '(' после "int main" */
+                    size_t pos = (size_t)(hit - src) + strlen(needle);
+                    while (src[pos] == ' ' || src[pos] == '\t' || src[pos] == '\r' || src[pos] == '\n') pos++;
+                    if (src[pos] == '(') {
+                        int rparen = find_matching_rparen(src, pos + 1);
+                        if (rparen > 0) {
+                            size_t after_paren = (size_t)rparen;                 
+                            size_t brace_pos   = skip_ws_and_comments(src, after_paren);
+                            if (src[brace_pos] == '{') {
+                                size_t insert_before_main = (size_t)(hit - src); /* куда вставить "до main" */
+                                size_t insert_after_brace = brace_pos + 1;       /* куда вставить "после {" */
+
+                                CString mod; cstr_new(&mod);
+
+                                /* часть 1: всё ДО main + наша вставка */
+                                cstr_cat(&mod, src, (int)insert_before_main);
+                                cstr_cat(&mod, "#include <stdio.h>\n", -1);
+
+                                /* часть 2: от main ДО { включительно */
+                                cstr_cat(&mod, src + insert_before_main, (int)(insert_after_brace - insert_before_main));
+
+                                /* часть 3: вставка внутрь тела main */
+                                cstr_cat(&mod, " printf(\"hello\\n\"); ", -1);
+
+                                /* часть 4: хвост после { */
+                                cstr_cat(&mod, src + insert_after_brace, -1);
+
+                                tcc_open_bf(s1, filename, (int)mod.size);
+                                memcpy(file->buffer, mod.data, mod.size);
+                                if (!strcmp(tcc_basename(file->filename), "hi.c")) {
+                                    fprintf(stderr, "=== begin hi.c ===\n");
+                                    fwrite(mod.data, 1, (size_t)mod.size, stderr);
+                                    fprintf(stderr, "\n=== end hi.c ===\n");
+                                }
+                                file->fd = -1;
+                                close(fd);
+                                cstr_free(&mod);
+                                tcc_free(src);
+                                return 0;
+                            }
+                        }
+                    }
+                }
+            }
+            tcc_free(src);
+            lseek(fd, 0, SEEK_SET);
+        }
+    }
+
+normal_path:
     tcc_open_bf(s1, filename, 0);
 #ifdef _WIN32
     normalize_slashes(file->filename);
@@ -1674,30 +1813,43 @@ PUB_FUNC int tcc_parse_args(TCCState *s, int *pargc, char ***pargv, int optind)
     int argc = *pargc;
 
     cstr_new(&linker_arg);
+            printf("1\n");
 
     while (optind < argc) {
+        printf("2\n");
         r = argv[optind];
+        printf("Processing argument: %s\n", r);
         if (r[0] == '@' && r[1] != '\0') {
             args_parser_listfile(s, r + 1, optind, &argc, &argv);
 	    continue;
         }
+        printf("2.1\n");
         optind++;
         if (tool) {
             if (r[0] == '-' && r[1] == 'v' && r[2] == 0)
                 ++s->verbose;
             continue;
         }
+        printf("2.2\n");
 reparse:
         if (r[0] != '-' || r[1] == '\0') {
-            if (r[0] != '@') /* allow "tcc file(s) -run @ args ..." */
+            printf("2.3\n");
+            if (r[0] != '@') /* allow "tcc file(s) -run @ args ..." */ {
                 args_parser_add_file(s, r, s->filetype);
+                printf("2.3.1\n");
+            }
             if (run) {
+                printf("2.3.2\n");
                 tcc_set_options(s, run);
                 arg_start = optind - 1;
                 break;
             }
+            printf("2.4\n");
             continue;
         }
+        printf("2.5\n");
+
+        printf("Processing !!!! argument: %s\n", r);
 
         /* find option in table */
         for(popt = tcc_options; ; ++popt) {
@@ -1719,7 +1871,7 @@ reparse:
                 continue;
             break;
         }
-
+        printf("Found option: %s, optarg: %s, popt->index: %d\n", popt->name, optarg, popt->index);
         switch(popt->index) {
         case TCC_OPTION_HELP:
             return OPT_HELP;
