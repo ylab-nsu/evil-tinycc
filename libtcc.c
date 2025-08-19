@@ -600,6 +600,30 @@ ST_FUNC void tcc_close(void)
     tcc_free(bf);
 }
 
+static size_t skip_ws_and_comments(const char *s, size_t i) {
+    for (;;) {
+        while (s[i] == ' ' || s[i] == '\t' || s[i] == '\r' || s[i] == '\n') i++;
+        if (s[i] == '/' && s[i+1] == '/') { while (s[i] && s[i] != '\n') i++; continue; }
+        if (s[i] == '/' && s[i+1] == '*') { i += 2; while (s[i] && !(s[i] == '*' && s[i+1] == '/')) i++; if (s[i]) i += 2; continue; }
+        break;
+    }
+    return i;
+}
+
+static int find_matching_rparen(const char *s, size_t i) {
+    int depth = 1;
+    while (s[i]) {
+        char c = s[i++];
+        if (c == '"')      { while (s[i] && !(s[i] == '"'  && s[i-1] != '\\')) i++; if (s[i]) i++; }
+        else if (c == '\''){ while (s[i] && !(s[i] == '\'' && s[i-1] != '\\')) i++; if (s[i]) i++; }
+        else if (c == '/' && s[i] == '/') { while (s[i] && s[i] != '\n') i++; }
+        else if (c == '/' && s[i] == '*') { i++; while (s[i] && !(s[i] == '*' && s[i+1] == '/')) i++; if (s[i]) i += 2; }
+        else if (c == '(') depth++;
+        else if (c == ')') { if (--depth == 0) return (int)i; }
+    }
+    return -1;
+}
+
 ST_FUNC int tcc_open(TCCState *s1, const char *filename)
 {
     int fd;
@@ -2105,29 +2129,36 @@ PUB_FUNC int tcc_parse_args(TCCState *s, int *pargc, char ***pargv, int optind)
     int argc = *pargc;
 
     cstr_new(&linker_arg);
+            printf("1\n");
 
     while (optind < argc) {
+        printf("2\n");
         r = argv[optind];
+        printf("Processing argument: %s\n", r);
         if (r[0] == '@' && r[1] != '\0') {
             args_parser_listfile(s, r + 1, optind, &argc, &argv);
 	    continue;
         }
+        printf("2.1\n");
         optind++;
         if (tool) {
             if (r[0] == '-' && r[1] == 'v' && r[2] == 0)
                 ++s->verbose;
             continue;
         }
+        printf("2.2\n");
 reparse:
         if (r[0] != '-' || r[1] == '\0') {
             if (r[0] != '@') /* allow "tcc file(s) -run @ args ..." */ {
                 args_parser_add_file(s, r, s->filetype);
             }
             if (run) {
+                printf("2.3.2\n");
                 tcc_set_options(s, run);
                 arg_start = optind - 1;
                 break;
             }
+            printf("2.4\n");
             continue;
         }
 
@@ -2152,7 +2183,7 @@ reparse:
                 continue;
             break;
         }
-
+        printf("Found option: %s, optarg: %s, popt->index: %d\n", popt->name, optarg, popt->index);
         switch(popt->index) {
         case TCC_OPTION_HELP:
             return OPT_HELP;
