@@ -7,7 +7,6 @@ def process_line(line):
     if not line:
         return "\\n"
     
-    # Экранируем обратные слеши и кавычки
     line = line.replace('\\', '\\\\')
     line = line.replace('"', '\\"')
     
