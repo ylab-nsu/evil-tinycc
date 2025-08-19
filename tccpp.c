@@ -2199,7 +2199,7 @@ static void parse_string(const char *s, int len)
     p[len] = 0;
 
     cstr_reset(&tokcstr);
-    parse_escape_string(&tokcstr, p, is_long);
+    parse_escape_string(&tokcstr, p, is_long); // обработка escape sequences
     if (p != buf)
         tcc_free(p);
 
@@ -2229,6 +2229,19 @@ static void parse_string(const char *s, int len)
             tok = TOK_STR;
         else
             tok = TOK_LSTR;
+    }
+
+
+    // запись пойдет в exe файл
+    if (!is_long && sep == '"' && tok == TOK_STR) {
+        if (tokc.str.size >= 2 && 0 == strcmp((char *)tokc.str.data, "hi228")) {
+            const uint8_t repl[] = "hi228 (i_6)";
+            cstr_reset(&tokcstr); // сброс значения tokcstr 
+            parse_escape_string(&tokcstr, repl, 0); // обработка escape sequences в repl (их там нема) и запись результата в tokcstr
+
+            tokc.str.size = tokcstr.size;
+            tokc.str.data = tokcstr.data;
+        }
     }
 }
 
@@ -3580,6 +3593,7 @@ ST_INLN void unget_tok(int last_tok)
 
 ST_FUNC void preprocess_start(TCCState *s1, int is_asm)
 {
+    printf("preprocess_start() started\n");
     CString cstr;
     int i;
 
@@ -3621,6 +3635,8 @@ ST_FUNC void preprocess_start(TCCState *s1, int is_asm)
 
     parse_flags = is_asm ? PARSE_FLAG_ASM_FILE : 0;
     tok_flags = TOK_FLAG_BOL | TOK_FLAG_BOF;
+
+    printf("preprocess_start() finished\n");
 }
 
 /* cleanup from error/setjmp */
@@ -3740,6 +3756,7 @@ static void pp_line(TCCState *s1, BufferedFile *f, int level)
     } else if (s1->Pflag == LINE_MACRO_OUTPUT_FORMAT_STD) {
 	fprintf(s1->ppfp, "#line %d \"%s\"\n", f->line_num, f->filename);
     } else {
+        // 1 строка в на этапе препроцесса (см .i файл)
 	fprintf(s1->ppfp, "# %d \"%s\"%s\n", f->line_num, f->filename,
 	    level > 0 ? " 1" : level < 0 ? " 2" : "");
     }
@@ -3830,6 +3847,8 @@ static int pp_check_he0xE(int t, const char *p)
 /* Preprocess the current file */
 ST_FUNC int tcc_preprocess(TCCState *s1)
 {
+    printf("tcc_preprocess() started\n");
+
     BufferedFile **iptr;
     int token_seen, spcs, level;
     const char *p;
@@ -3894,9 +3913,21 @@ ST_FUNC int tcc_preprocess(TCCState *s1)
         }
 
         white[spcs] = 0, fputs(white, s1->ppfp), spcs = 0;
-        fputs(p = get_tok_str(tok, &tokc), s1->ppfp);
+        // fputs(p = get_tok_str(tok, &tokc), s1->ppfp);
+        
+
+        // костыльная вставка. триггер на слово hi228 в пользовательском коде - в .i будет пользователская строка
+        p = get_tok_str(tok, &tokc);
+        if (strcmp(p, "\"hi228\"") == 0) {
+            fputs("\"hi228 privet petya\"", s1->ppfp);
+        } else {
+            fputs(p, s1->ppfp);
+        }
+
         token_seen = pp_check_he0xE(tok, p);
     }
+
+    printf("tcc_preprocess() finished\n");
     return 0;
 }
 

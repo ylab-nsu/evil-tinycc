@@ -1,5 +1,5 @@
 #!/bin/bash
 
 make clean
-make -j"$(nproc)"
+make -j"$(nproc)" CC=tcc 
 sudo make install
