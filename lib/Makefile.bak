@@ -27,7 +27,7 @@ ifeq "$($(T)-libtcc1-usegcc)" "yes"
 endif
 
 # only for native compiler
-$(X)BCHECK_O = bcheck.o
+$(X)BCHECK_O = 
 
 ifeq ($(CONFIG_musl)$(CONFIG_uClibc),yes)
  BCHECK_O =
@@ -46,8 +46,8 @@ WIN_O = crt1.o crt1w.o wincrt1.o wincrt1w.o dllcrt1.o dllmain.o
 OBJ-i386 = $(I386_O) $(BCHECK_O)
 OBJ-x86_64 = $(X86_64_O) va_list.o $(BCHECK_O)
 OBJ-x86_64-osx = $(X86_64_O) va_list.o
-OBJ-i386-win32 = $(I386_O) chkstk.o bcheck.o $(WIN_O)
-OBJ-x86_64-win32 = $(X86_64_O) chkstk.o bcheck.o $(WIN_O)
+OBJ-i386-win32 = $(I386_O) chkstk.o  $(WIN_O)
+OBJ-x86_64-win32 = $(X86_64_O) chkstk.o  $(WIN_O)
 OBJ-arm64 = $(ARM64_O)
 OBJ-arm = $(ARM_O)
 OBJ-arm-fpa = $(ARM_O)
