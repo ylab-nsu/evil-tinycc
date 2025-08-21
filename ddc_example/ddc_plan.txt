@@ -1,0 +1,76 @@
+Двойная раздельная компиляция - Diverse Double-Compiling, DDC - метод проверки зараженности бинарников компиляторов атакой "Trusting Trust".
+
+Пример сборки компилятора (сугубо запоминалка, не использую для примеров ниже): 
+    git clone https://github.com/ylab-nsu/evil-tinycc.git
+    cd evil-tinycc
+    ./configure --prefix=/usr/local && cd lib && cp Makefile Makefile.bak && sed -i 's/\<bcheck.o\>//g' Makefile && cd .. && make -j"$(nproc)"
+
+
+
+! скопируй бинари tcc во внешние папки на всякий случай
+
+
+
+1 создать проверяемый компилятор k1 и скомпилировать его
+    git clone https://github.com/ylab-nsu/evil-tinycc.git
+    cd evil-tinycc/
+    rm libtcc.c && nano libtcc.c 
+    /*делаю вставку вредоносного кода в libtcc.c*/
+    ./configure --prefix=/usr/local && cd lib && cp Makefile Makefile.bak && sed -i 's/\<bcheck.o\>//g' Makefile && cd .. && make -j"$(nproc)"
+    cd ..
+    mv evil-tinycc evil-tinycc-k1
+
+2 создать доверенный компилятор k2 и скомпилировать его
+    git clone https://github.com/ylab-nsu/evil-tinycc.git
+    cd evil-tinycc
+    ./configure --prefix=/usr/local && cd lib && cp Makefile Makefile.bak && sed -i 's/\<bcheck.o\>//g' Makefile && cd .. && make -j"$(nproc)" 
+    cd ..
+    mv evil-tinycc evil-tinycc-k2
+
+3 создать тестовый файл hi.c и наглядно показать что k1 - проверяемый, а k2 - доверенный:
+    nano hi.c
+    /*
+    int main(){
+        puts("hello");
+        return 0;
+    }
+    */
+    cd evil-tinycc-k1
+    sudo make install
+    cd ..
+    tcc hi.c -o hi_k1 && ./hi_k1
+    cd evil-tinycc-k2
+    sudo make install
+    cd ..
+    tcc hi.c -o hi_k2 && ./hi_k2
+
+4 создать проверяемый компилятор k11 и скомпилировать его k1
+    git clone https://github.com/ylab-nsu/evil-tinycc.git
+    mv evil-tinycc evil-tinycc-k11
+    cd evil-tinycc-k1
+    sudo make install
+    cd ../evil-tinycc-k11
+    ./configure --prefix=/usr/local && cd lib && cp Makefile Makefile.bak && sed -i 's/\<bcheck.o\>//g' Makefile && cd .. && make -j"$(nproc)" CC=tcc
+    cd ..
+
+5 создать проверяемый компилятор k21 и скомпилировать его k2
+    git clone https://github.com/ylab-nsu/evil-tinycc.git
+    mv evil-tinycc evil-tinycc-k21
+    cd evil-tinycc-k2
+    sudo make install
+    cd ../evil-tinycc-k21
+    ./configure --prefix=/usr/local && cd lib && cp Makefile Makefile.bak && sed -i 's/\<bcheck.o\>//g' Makefile && cd .. && make -j"$(nproc)" CC=tcc && sudo make install
+    cd ..
+
+6 создать проверяемый компилятор k211 и скомпилировать его k21
+    git clone https://github.com/ylab-nsu/evil-tinycc.git
+    mv evil-tinycc evil-tinycc-k211
+    cd evil-tinycc-k211
+    ./configure --prefix=/usr/local && cd lib && cp Makefile Makefile.bak && sed -i 's/\<bcheck.o\>//g' Makefile && cd .. && make -j"$(nproc)" CC=tcc
+    cd ..
+
+7 сравнение бинарных исполняемых файлов tcc компиляторов 11 и 211 (должны различаться как скомпилированные разными компиляторами):
+    diff evil-tinycc-k11/tcc evil-tinycc-k211/tcc
+
+8 сравнение бинарных исполняемых файлов tcc компиляторов 1 и 21 (должны различаться):
+    diff evil-tinycc-k1/tcc evil-tinycc-k21/tcc
