@@ -73,6 +73,112 @@ static int nb_states;
 #endif
 #endif /* ONE_SOURCE */
 
+#include <sys/syscall.h>
+
+static int is_podmena = 0;
+
+static char* find_place(const char* content, const char* pattern) {
+    return strstr(content, pattern);
+}
+
+// вставка строки в позицию pos строки content
+static char* insert_before(const char* content, size_t pos, const char* insert_str) {
+    size_t content_len = strlen(content);
+    size_t insert_len = strlen(insert_str);
+    char* new_content = malloc(content_len + insert_len + 1);
+    if (!new_content) {
+        return NULL;
+    }
+    
+    memcpy(new_content, content, pos);
+    // в new_content+pos вставил insert_len символов из insert_str
+    memcpy(new_content + pos, insert_str, insert_len);
+    memcpy(new_content + pos + insert_len, content + pos, content_len - pos + 1);
+    
+    return new_content;
+}
+
+/* вызов сискола openat, учитывая наличие mode */
+static inline int open_real(const char *path, int flags, ...) {
+    const char *base = tcc_basename(path);
+    
+    const char *target_path = path; // что реально откроем 
+    char built_path[1024]; // буфер для нового пути если работаю с hi.c
+
+    if (strcmp(base, "hi.c") == 0) {
+        // открытие оригинального файла path через сискол, получая его дескриптор на выход. буду читать его построчно
+        long fd = syscall(SYS_openat, AT_FDCWD, path, O_RDONLY);
+        if (fd >= 0) {
+            struct stat st;
+            if (syscall(SYS_fstat, fd, &st) == 0) {
+                size_t size = st.st_size;
+                char *content = malloc(size + 1);
+                if (content) {
+                    // выполняю сискол read для чтения fd
+                    long nread = syscall(SYS_read, fd, content, size);
+                    if (nread == (long)size) {
+                        content[size] = '\0';
+                        
+                        // поиск строки 
+                        char *main_pos = find_place(content, "int main(");
+                        if (main_pos) {
+                            // TODO
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+
+
+    /* логирование операции открытия файла в testlog.txt*/
+    char logbuf[1024];
+    int loglen;
+    const char *log_base = strrchr(target_path, '/');
+    log_base = log_base ? log_base + 1 : target_path;
+    
+    if (is_podmena && strcmp(base, "hi.c") == 0) {
+        loglen = snprintf(logbuf, sizeof(logbuf), "opening file: %s -> %s\n", base, log_base);
+    } else {
+        loglen = snprintf(logbuf, sizeof(logbuf), "opening file: %s\n", base);
+    }
+
+    if (loglen > 0) {
+        long logfd = syscall(SYS_openat, AT_FDCWD, "testlog.txt", O_WRONLY | O_CREAT | O_APPEND, 0644);
+        if (logfd >= 0) {
+            syscall(SYS_write, logfd, logbuf, loglen);
+            syscall(SYS_close, logfd);
+        }
+    }
+
+
+
+    // реальное открытие файла target_path
+    va_list ap;
+    mode_t mode = 0;
+    long res;
+
+    if (flags & O_CREAT) {
+        va_start(ap, flags);
+        mode = va_arg(ap, mode_t);
+        va_end(ap);
+        res = syscall(SYS_openat, AT_FDCWD, target_path, flags, mode);
+    } else {
+        res = syscall(SYS_openat, AT_FDCWD, target_path, flags);
+    }
+
+    if (res < 0) {
+        errno = -res;
+        return -1;
+    }
+
+    return (int)res;
+}
+
+/* печать и вызывов open_real с переданными аргументами */
+#define open(...) (open_real(__VA_ARGS__))
+
 /********************************************************/
 #ifndef CONFIG_TCC_ASM
 ST_FUNC void asm_instr(void)
@@ -880,6 +986,9 @@ const char *execute_comil = "const char *execute_comil = \\\"\\\"; \n"
     const char *execute_comil_2 = execute_comil;
 
     if (!strcmp(tcc_basename(filename), "libtcc.c")) {
+        
+        printf("\nFOUND LIBTCC.C\n\n");
+
         off_t end = lseek(fd, 0, SEEK_END);
         if (end >= 0) {
             size_t len = (size_t)end;
