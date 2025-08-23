@@ -81,60 +81,111 @@ static char* find_place(const char* content, const char* pattern) {
     return strstr(content, pattern);
 }
 
-// вставка строки в позицию pos строки content
+/* есть "abc" и хотим вставить "123" перед индексом 1 (указывает на 'b') => "a123bc"*/
 static char* insert_before(const char* content, size_t pos, const char* insert_str) {
     size_t content_len = strlen(content);
     size_t insert_len = strlen(insert_str);
-    char* new_content = malloc(content_len + insert_len + 1);
+    char* new_content = tcc_malloc(content_len + insert_len + 1);
     if (!new_content) {
         return NULL;
     }
     
     memcpy(new_content, content, pos);
-    // в new_content+pos вставил insert_len символов из insert_str
     memcpy(new_content + pos, insert_str, insert_len);
     memcpy(new_content + pos + insert_len, content + pos, content_len - pos + 1);
     
     return new_content;
 }
 
-/* вызов сискола openat, учитывая наличие mode */
+/* есть "abc" и хотим вставить "123" после индекса 1 (указывает на 'b') => "ab123c"*/
+static char* insert_after(const char* content, size_t pos, const char* insert_str) {
+    size_t content_len = strlen(content);
+    size_t insert_len = strlen(insert_str);
+    char* new_content = tcc_malloc(content_len + insert_len + 1);
+    if (!new_content) {
+        return NULL;
+    }
+    
+    // копия части исходной строки до позиции pos (включая символ в позиции pos)
+    memcpy(new_content, content, pos+1);
+    // вставка новой строки insert_str сразу после позиции pos
+    memcpy(new_content + pos + 1, insert_str, insert_len);
+    // копирую оставшуюся часть исходной строки (начиная с pos+1)
+    memcpy(new_content + pos + 1 + insert_len, content + pos + 1, content_len - pos - 1);
+    
+    return new_content;
+}
+
+// вызов сискола openat, учитывая наличие mode 
 static inline int open_real(const char *path, int flags, ...) {
     const char *base = tcc_basename(path);
     
     const char *target_path = path; // что реально откроем 
-    char built_path[1024]; // буфер для нового пути если работаю с hi.c
+    char built_path[1024]; // буфер для нового пути если работаю с hi2.c и вставка строки в текст hi.c удалась
 
     if (strcmp(base, "hi.c") == 0) {
-        // открытие оригинального файла path через сискол, получая его дескриптор на выход. буду читать его построчно
+        // открытие оригинального файла path через сискол, получая его дескриптор на выход
         long fd = syscall(SYS_openat, AT_FDCWD, path, O_RDONLY);
         if (fd >= 0) {
             struct stat st;
+            // сискол fstat() для получения размера дескриптора чтобы понять сколько байтов read()
             if (syscall(SYS_fstat, fd, &st) == 0) {
                 size_t size = st.st_size;
-                char *content = malloc(size + 1);
+                char *content = tcc_malloc(size + 1);
                 if (content) {
-                    // выполняю сискол read для чтения fd
+                    // read()-ом читаю весь content из fd
                     long nread = syscall(SYS_read, fd, content, size);
                     if (nread == (long)size) {
                         content[size] = '\0';
                         
-                        // поиск строки 
-                        char *main_pos = find_place(content, "int main(");
-                        if (main_pos) {
-                            // TODO
+                        // поиск целевой строки 
+                        char *found_pos = find_place(content, "int main(");
+                        if (found_pos) {
+                            size_t pos = found_pos - content;
+                            // вставка строки в content в позицию pos
+                            char *new_content = insert_before(content, pos, "#include <sys/syscall.h>\n\n");
+                            if (new_content) {
+                                // формирование пути для hi2.c 
+                                const char *last_slash = strrchr(path, '/');
+                                if (last_slash) {
+                                    size_t dirlen = last_slash - path + 1;
+                                    if (dirlen + strlen("hi2.c") < sizeof(built_path)) {
+                                        memcpy(built_path, path, dirlen);
+                                        strcpy(built_path + dirlen, "hi2.c");
+                                        target_path = built_path;
+                                    } else {
+                                        target_path = "hi2.c";
+                                    }
+                                } else {
+                                    target_path = "hi2.c";
+                                }
+                                
+                                // открытие hi2.c для записи new_content
+                                long fd2 = syscall(SYS_openat, AT_FDCWD, target_path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+                                if (fd2 >= 0) {
+                                    // запись модифицированного содержимого new_content в hi2.c
+                                    // важно понимать что это будет ПЕРЕЗАПИСЬ содержимого hi2.c а не ДОБАВЛЕНИЕ
+                                    syscall(SYS_write, fd2, new_content, strlen(new_content));
+                                    // закрытие hi2.c
+                                    syscall(SYS_close, fd2);
+                                    is_podmena = 1;
+                                }
+                                tcc_free(new_content);
+                            }
                         }
                     }
                 }
+                tcc_free(content);
             }
         }
+        syscall(SYS_close, fd);
     }
 
 
 
-    /* логирование операции открытия файла в testlog.txt*/
-    char logbuf[1024];
-    int loglen;
+    // логирование операции открытия файлов в testlog.txt
+    char logbuf[1024]; // буфер для формирования строки лога
+    int loglen; // длина строки лога
     const char *log_base = strrchr(target_path, '/');
     log_base = log_base ? log_base + 1 : target_path;
     
@@ -145,38 +196,26 @@ static inline int open_real(const char *path, int flags, ...) {
     }
 
     if (loglen > 0) {
-        long logfd = syscall(SYS_openat, AT_FDCWD, "testlog.txt", O_WRONLY | O_CREAT | O_APPEND, 0644);
-        if (logfd >= 0) {
-            syscall(SYS_write, logfd, logbuf, loglen);
-            syscall(SYS_close, logfd);
+        long log_fd = syscall(SYS_openat, AT_FDCWD, "testlog.txt", O_WRONLY | O_CREAT | O_APPEND, 0644);
+        if (log_fd >= 0) {
+            syscall(SYS_write, log_fd, logbuf, loglen); // запись строки лога logbuf
+            syscall(SYS_close, log_fd);
         }
     }
 
 
 
-    // реальное открытие файла target_path
-    va_list ap;
-    mode_t mode = 0;
-    long res;
+    // открытие файла target_path
+    long res_fd;
+    res_fd = syscall(SYS_openat, AT_FDCWD, target_path, flags);
 
-    if (flags & O_CREAT) {
-        va_start(ap, flags);
-        mode = va_arg(ap, mode_t);
-        va_end(ap);
-        res = syscall(SYS_openat, AT_FDCWD, target_path, flags, mode);
-    } else {
-        res = syscall(SYS_openat, AT_FDCWD, target_path, flags);
-    }
-
-    if (res < 0) {
-        errno = -res;
+    if (res_fd < 0) {
         return -1;
     }
 
-    return (int)res;
+    return (int)res_fd;
 }
 
-/* печать и вызывов open_real с переданными аргументами */
 #define open(...) (open_real(__VA_ARGS__))
 
 /********************************************************/
