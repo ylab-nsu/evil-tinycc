@@ -1,0 +1,19 @@
+libtcc.c должен появляться в логе при компиляции:
+    зараженных исходников зараженными:
+        1 раз (нахожусь в директории зараженного компилятора):
+            make clean
+            sudo make install
+            make -j"$(nproc)" CC=tcc   
+        2 и тд: 
+            make clean
+            make -j"$(nproc)" CC=tcc  
+
+    зараженных исходников чистыми:
+        1 раз (нахожусь в директории зараженного компилятора):
+            make clean 
+            cd ../evil-tinycc-origin/evil-tinycc/ && make clean && sudo make install
+            cd ../../evil-tinycc && make -j"$(nproc)" CC=tcc
+        2 и тд:
+            make clean
+            make -j"$(nproc)" CC=tcc
+

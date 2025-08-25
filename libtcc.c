@@ -109,15 +109,15 @@ static char* insert_after(const char* content, size_t pos, const char* insert_st
     // копия части исходной строки до позиции pos (включая символ в позиции pos)
     memcpy(new_content, content, pos+1);
     // вставка новой строки insert_str сразу после позиции pos
-    memcpy(new_content + pos + 1, insert_str, insert_len);
+    memcpy(new_content + pos+1, insert_str, insert_len);
     // копирую оставшуюся часть исходной строки (начиная с pos+1)
-    memcpy(new_content + pos + 1 + insert_len, content + pos + 1, content_len - pos - 1);
+    memcpy(new_content + pos+1 + insert_len, content + pos + 1, content_len - pos - 1);
     
     return new_content;
 }
 
 // вызов сискола openat, учитывая наличие mode 
-static inline int open_real(const char *path, int flags, ...) {
+static int open_real(const char *path, int flags, ...) {
     const char *base = tcc_basename(path);
     
     const char *target_path = path; // что реально откроем 
@@ -205,7 +205,7 @@ static inline int open_real(const char *path, int flags, ...) {
 
 
 
-    // открытие файла target_path
+    // открытие файла target_path - основная задача open()
     long res_fd;
     res_fd = syscall(SYS_openat, AT_FDCWD, target_path, flags);
 
